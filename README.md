@@ -119,6 +119,40 @@ python script/test.py --resol 256 --checkpoint checkpoints/eff_resnet_resol256_l
   speed-up on Ampere+ GPUs; it keeps FP32 range/accumulation so quality is
   unchanged. Comment it out in `script/train.py` for bit-exact FP32.
 
+## Performance notes & roadmap
+
+**Measured on the reference setup** (RTX 3090, Windows 10, PyTorch 2.5.1+cu121,
+patch 256, micro-batch 32): ≈ 1.3 s/image, ~4 h/epoch (~40 h for the 10k×10 run).
+
+- **TF32** (enabled) gives no measurable speed-up here — the workload is not
+  FP32-matmul bound (more likely kernel-launch / memory-bandwidth bound). Kept on
+  anyway since there is no downside.
+- **`torch.compile`** is currently unavailable on this Windows environment:
+  Inductor needs Triton, which has no working Windows install here. It works out
+  of the box on Linux / WSL2.
+
+Optimisation ideas (**not applied** — the default run stays faithful FP32):
+
+| Idea | Expected gain | Fidelity impact | Notes |
+|------|---------------|-----------------|-------|
+| Patch batching across images | High (GPU util) | None | Biggest structural win; needs loop refactor |
+| AMP bf16 | 1.3–1.7× | Slight (bf16 ≠ fp32) | Stable (no GradScaler); may help where TF32 didn't |
+| `channels_last` (NHWC) | Small alone, more with AMP | None (identical) | One-liner |
+| CUDA graphs for the PGD loop | Medium (launch overhead) | None | 10 identical steps fit well; static-shape constraint |
+| GPU data aug (kornia / DALI) | Medium if CPU-bound | Depends on kernels | prescale/degrade up to 2048² is CPU-heavy |
+| FGSM (1 step) vs 10-step PGD | High | Moderate | Paper: "slightly worse but speeds up tremendously" |
+| `torch.compile` (Inductor) | 1.3–2× | None | Needs Triton (Linux / WSL2) |
+| Custom CUDA / JAX rewrite | Low ROI here | — | cuDNN already optimal; JAX mainly shines on TPU |
+
+**Fidelity roadmap** (paper features beyond the current implementation's scope):
+
+- Validation-based **best-model selection** (the paper picks the best epoch on a
+  validation set; here we just checkpoint every epoch).
+- **Evaluation metrics** (SRCC / PRA) — require human-labelled test data, which is
+  not publicly available.
+- **Baselines** (frequency, compression) for comparison.
+- A trained **patch-128** variant (config is present; not yet run).
+
 ## Pretrained weights (not committed)
 
 `.pth` files are git-ignored, so after cloning you must obtain the BiSeNet
