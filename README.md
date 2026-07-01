@@ -38,14 +38,22 @@ scores clipped to `[0, 1]` → **median** → `r_eff = y · r`.
 ## Setup
 
 Tested with **Python 3.10** and **CUDA 12.1** on an RTX 3090 (24 GB).
+Environment managed with [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# 1) create an environment (conda shown; a venv works too)
-conda create -n ssere python=3.10 -y
-conda activate ssere
+# install uv first if needed:
+#   curl -LsSf https://astral.sh/uv/install.sh | sh          (Linux/macOS)
+#   powershell -c "irm https://astral.sh/uv/install.ps1|iex" (Windows)
 
-# 2) install dependencies (pulls the cu121 build of torch/torchvision)
-pip install -r requirements.txt
+# 1) create a virtual environment with Python 3.10
+uv venv --python 3.10
+
+# 2) activate it
+#    Linux/macOS:  source .venv/bin/activate
+#    Windows:      .venv\Scripts\activate
+
+# 3) install dependencies (requirements.txt pulls the cu121 build of torch)
+uv pip install -r requirements.txt
 ```
 
 Dependencies: `torch`, `torchvision`, `numpy`, `opencv-python`, `pillow`
