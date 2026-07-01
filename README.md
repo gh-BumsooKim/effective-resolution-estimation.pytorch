@@ -35,11 +35,28 @@ Training (`script/train.py`), per image:
 Inference (`script/test.py`): mask → ~100 patches (≥ 90% foreground) → per-patch
 scores clipped to `[0, 1]` → **median** → `r_eff = y · r`.
 
-## Requirements
+## Setup
 
-- Python 3.10, `torch`/`torchvision` (CUDA), `opencv-python`, `Pillow`, `numpy`.
-- BiSeNet face-parsing checkpoint at `face_parsing/res/cp/79999_iter.pth` (included).
-- ResNet50 ImageNet weights download automatically on first run.
+Tested with **Python 3.10** and **CUDA 12.1** on an RTX 3090 (24 GB).
+
+```bash
+# 1) create an environment (conda shown; a venv works too)
+conda create -n ssere python=3.10 -y
+conda activate ssere
+
+# 2) install dependencies (pulls the cu121 build of torch/torchvision)
+pip install -r requirements.txt
+```
+
+Dependencies: `torch`, `torchvision`, `numpy`, `opencv-python`, `pillow`
+(exact tested versions are pinned in `requirements.txt`).
+
+Before training you also need:
+- the **BiSeNet** face-parsing weight at `face_parsing/res/cp/79999_iter.pth`
+  (git-ignored — see [Pretrained weights](#pretrained-weights-not-committed));
+- your face images, pointed to via `--dataset_path` / `SSERE_DATA_GLOB`.
+
+The ResNet50 ImageNet weights download automatically on first run.
 
 ## Usage
 
