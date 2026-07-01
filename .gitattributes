@@ -1,0 +1,11 @@
+# Normalise line endings: store text as LF in the repo, check out native.
+* text=auto eol=lf
+
+# Treat these as binary (never touch line endings / never diff as text).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pth binary
+*.pt binary
+*.ckpt binary
+*.pdf binary

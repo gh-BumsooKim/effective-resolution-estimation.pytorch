@@ -9,6 +9,8 @@ patch size 128).
 
 import os
 
+from train_util.interpolation_methods import INTERPOLATION_METHODS
+
 # ---------------------------------------------------------------------------
 # Settings that are shared by every patch-size configuration.
 # ---------------------------------------------------------------------------
@@ -56,9 +58,7 @@ training_default = {
     'pre_min_foreground'    : 0.50,     # >=50% foreground to keep a patch (train)
     'max_downscale_factor'  : 16,       # df_m
     'use_antialiasing'      : True,
-    'interpolation_methods' : ['area', 'bicubic', 'bilinear', 'gaussian',
-                               'lanczos3', 'lanczos5', 'mitchellcubic',
-                               'nearest'],
+    'interpolation_methods' : INTERPOLATION_METHODS,   # single source of truth
     'interpolation_sampling': 'uniform',
     'prescale_frequency'    : 0.80,     # 80% of samples are prescaled
     'downscale_frequency'   : 0.90,     # 90% of samples are downscaled (10% none)

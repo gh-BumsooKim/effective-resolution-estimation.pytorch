@@ -33,6 +33,8 @@ def parse_args():
     p.add_argument('--checkpoint', required=True)
     p.add_argument('--image', default=None, help='single image')
     p.add_argument('--input_dir', default=None, help='directory of images')
+    p.add_argument('--output_csv', default=None,
+                   help='optional path to write results as CSV')
     return p.parse_args()
 
 
@@ -88,6 +90,7 @@ def main():
     else:
         raise SystemExit('provide --image or --input_dir')
 
+    rows = []
     for path in paths:
         r_eff, npatch = estimate(model, masker, config, device, path)
         if r_eff is None:
@@ -95,6 +98,15 @@ def main():
         else:
             print(f'{os.path.basename(path)}: r_eff = {r_eff:.1f} '
                   f'(from {npatch} patches)')
+        rows.append((path, '' if r_eff is None else f'{r_eff:.4f}', npatch))
+
+    if args.output_csv:
+        import csv
+        with open(args.output_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['image', 'r_eff', 'num_patches'])
+            writer.writerows(rows)
+        print(f'[saved] {args.output_csv}')
 
 
 if __name__ == '__main__':
