@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------------------------
+# Virtual environments
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+.conda/
+
+# ---------------------------------------------------------------------------
+# Training artifacts -- reproduced by running training, do not commit
+# ---------------------------------------------------------------------------
+checkpoints/
+checkpoints_*/
+logs/
+runs/
+wandb/
+*.log
+
+# ---------------------------------------------------------------------------
+# Model weights / large binaries
+#   Trained effective-resolution checkpoints are reproduced by training.
+#   The BiSeNet weight face_parsing/res/cp/79999_iter.pth (50 MB) is also
+#   matched here -- see README ("Pretrained weights") for the download link.
+#   Delete the patterns below (or `git add -f <file>`) if you prefer to bundle
+#   the BiSeNet weight in the repo.
+# ---------------------------------------------------------------------------
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# ---------------------------------------------------------------------------
+# Datasets (FFHQ etc. live outside the repo)
+# ---------------------------------------------------------------------------
+data/
+datasets/
+
+# ---------------------------------------------------------------------------
+# Paper PDFs -- link to the official CVF open-access page instead of bundling
+# ---------------------------------------------------------------------------
+paper/
+
+# ---------------------------------------------------------------------------
+# Generated test outputs
+# ---------------------------------------------------------------------------
+test_save/
+
+# ---------------------------------------------------------------------------
+# Editor / OS
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
