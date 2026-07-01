@@ -115,3 +115,7 @@ Effective-resolution checkpoints are produced by running the training above.
 
 This is an **unofficial** reimplementation and is not affiliated with the authors
 or DisneyResearch|Studios.
+
+## Acknowledgment
+
+Implemented with [Claude Code](https://claude.com/claude-code) (Anthropic Claude).
