@@ -48,6 +48,7 @@ class ImageLoader(torch.utils.data.Dataset):
         self.prescale_freq = config['prescale_frequency']
         self.downscale_freq = config['downscale_frequency']
         self.antialias = config['use_antialiasing']
+        self.whole = config.get('whole_image_size')   # None -> patch mode
 
         self.to_tensor = T.ToTensor()
 
@@ -57,10 +58,35 @@ class ImageLoader(torch.utils.data.Dataset):
     def _rand_method(self):
         return random.choice(self.interpolation)
 
+    def _whole_item(self, pil):
+        """256-aligned whole-face sample: resize the whole face to ``self.whole``
+        (a sharp reference at that resolution), then optionally degrade it by
+        down- then up-scaling.  The target is the degradation ratio.
+        """
+        S = self.whole
+        pil = resize(pil, (S, S), 'bicubic', antialias=True)   # sharp S-ref
+
+        if random.random() < self.downscale_freq:
+            factor = random.uniform(1.0 / self.max_down, 1.0)
+            d = max(1, int(round(S * factor)))
+            pil_down = resize(pil, (d, d), self._rand_method(),
+                              antialias=self.antialias)
+            pil = resize(pil_down, (S, S), self._rand_method(),
+                         antialias=self.antialias)
+            y = d / float(S)
+        else:
+            y = 1.0
+
+        img = self.to_tensor(pil)                # (3, S, S) in [0, 1]
+        return img, torch.tensor(y, dtype=torch.float32), S
+
     def __getitem__(self, idx):
         pil = Image.open(self.img_paths[idx])
         pil.load()
         pil = pil.convert('RGB')
+
+        if self.whole is not None:
+            return self._whole_item(pil)
 
         w0, h0 = pil.size
         native = h0                      # reference (height) resolution

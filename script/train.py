@@ -33,6 +33,10 @@ from utils.train_util import mape_loss, reset_LR
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('-r', '--resol', default='256', choices=['128', '256'])
+    p.add_argument('--whole', action='store_true',
+                   help='use the whole-face config (whole{resol}): resize the '
+                        'whole face to a fixed size instead of tiling patches. '
+                        'Best when inference uses fixed-size crops.')
     p.add_argument('-g', '--num_gpu', default='0')
     p.add_argument('--dataset_path', default=None,
                    help='override training_default["train_dataset_path"]')
@@ -52,7 +56,9 @@ def parse_args():
 
 def build_config(args):
     config = dict(training_default)
-    config.update(training_config[f'resol{args.resol}'])
+    key = f'whole{args.resol}' if args.whole else f'resol{args.resol}'
+    config.update(training_config[key])
+    config['config_key'] = key
     if args.dataset_path is not None:
         config['train_dataset_path'] = args.dataset_path
     if args.dataset_limit is not None:
@@ -82,7 +88,9 @@ def main():
                           if torch.cuda.is_available() else 'cpu')
     print(f'[setup] TF32 enabled (matmul={torch.backends.cuda.matmul.allow_tf32}, '
           f'cudnn={torch.backends.cudnn.allow_tf32})')
-    print(f'[setup] device={device} resol={args.resol} '
+    mode = (f'whole-face {config["whole_image_size"]}px'
+            if config.get('whole_image_size') else 'patch (multi-scale)')
+    print(f'[setup] device={device} config={config["config_key"]} mode={mode} '
           f'patch={config["patch_size"]} real_batch={config["real_batch_size"]}')
 
     # --- data --------------------------------------------------------------
@@ -116,84 +124,93 @@ def main():
     real_batch = config['real_batch_size']
     accum_target = config['batch_accumulation']
     max_patches = config['max_train_patches']
-    min_fg = config['pre_min_foreground']
+    min_fg = (config['whole_min_foreground'] if config.get('whole_image_size')
+              else config['pre_min_foreground'])
+
+    def process_image(img):
+        """Mask + extract (capped) patches for one image. Returns (P,3,P,P) or None."""
+        mask = masker.foreground_mask(img)                 # (1, 1, H, W)
+        img_masked = img * mask[0]                          # zero background
+        p, _ = extract_patches(
+            img_masked, mask[0], patch_size, stride,
+            random_offset=config['random_patch_offset'], min_foreground=min_fg)
+        if p.shape[0] == 0:
+            return None
+        if max_patches is not None and p.shape[0] > max_patches:
+            sel = torch.randperm(p.shape[0], device=p.device)[:max_patches]
+            p = p[sel]
+        return p
+
+    def optimizer_step(Pb, Tb):
+        """One optimiser update over a mixed-image batch of len(Pb) patches.
+
+        Crucially the batch mixes patches from many images (different targets),
+        so BatchNorm cannot read the shared label off the batch statistics --
+        the model is forced to learn per-patch sharpness features.
+        """
+        optimizer.zero_grad(set_to_none=True)
+        total = Pb.shape[0]
+        reg_sum = adv_sum = 0.0
+        for s in range(0, total, real_batch):
+            pb, tb = Pb[s:s + real_batch], Tb[s:s + real_batch]
+            nb = pb.shape[0]
+            w = nb / total
+            loss_reg = mape_loss(model(pb), tb)
+            adv = pgd(pb, tb)
+            loss_adv = mape_loss(model(adv), tb)
+            (0.5 * (loss_reg + loss_adv) * w).backward()
+            reg_sum += loss_reg.item() * nb
+            adv_sum += loss_adv.item() * nb
+        optimizer.step()
+        return reg_sum / total, adv_sum / total
 
     global_step = 0
     for epoch in range(start_epoch, config['num_epochs'] + 1):
         model.train()
-        optimizer.zero_grad(set_to_none=True)
-        accum = 0
-        run_reg = run_adv = 0.0
-        run_cnt = 0
         t0 = time.time()
+        buf_p, buf_t, buf_n = [], [], 0
+        run_reg = run_adv = 0.0
+        run_k = 0
 
         for it, (img, y, r) in enumerate(loader):
             img = img.to(device, non_blocking=True)[0]     # (3, H, W)
-            y_val = float(y.item())
-
-            # --- mask + patches -------------------------------------------
-            mask = masker.foreground_mask(img)             # (1, 1, H, W)
-            img_masked = img * mask[0]                      # zero background
-            patches, _ = extract_patches(
-                img_masked, mask[0], patch_size, stride,
-                random_offset=config['random_patch_offset'], min_foreground=min_fg)
-            n = patches.shape[0]
-            if n == 0:
+            p = process_image(img)
+            if p is None:
                 continue
-            if max_patches is not None and n > max_patches:
-                idx = torch.randperm(n, device=patches.device)[:max_patches]
-                patches = patches[idx]
-                n = max_patches
-            targets = torch.full((n,), y_val, device=device)
+            buf_p.append(p)
+            buf_t.append(torch.full((p.shape[0],), float(y.item()), device=device))
+            buf_n += p.shape[0]
 
-            # --- regular + adversarial steps over micro-batches -----------
-            for s in range(0, n, real_batch):
-                pb = patches[s:s + real_batch]
-                tb = targets[s:s + real_batch]
-                nb = pb.shape[0]
-                weight = nb / accum_target
+            # once enough patches are buffered, form a shuffled mixed-image batch
+            while buf_n >= accum_target:
+                P = torch.cat(buf_p)
+                T = torch.cat(buf_t)
+                perm = torch.randperm(P.shape[0], device=P.device)
+                bidx, rest = perm[:accum_target], perm[accum_target:]
+                r_reg, r_adv = optimizer_step(P[bidx], T[bidx])
+                global_step += 1
 
-                pred = model(pb)
-                loss_reg = mape_loss(pred, tb)
+                # carry the leftover patches over to the next batch
+                buf_p = [P[rest]] if rest.numel() else []
+                buf_t = [T[rest]] if rest.numel() else []
+                buf_n = int(rest.numel())
 
-                adv = pgd(pb, tb)
-                pred_adv = model(adv)
-                loss_adv = mape_loss(pred_adv, tb)
+                run_reg += r_reg
+                run_adv += r_adv
+                run_k += 1
+                if global_step % config['log_every'] == 0:
+                    lr = optimizer.param_groups[0]['lr']
+                    print(f'[e{epoch} step {global_step}] '
+                          f'reg={run_reg / run_k:.4f} adv={run_adv / run_k:.4f} '
+                          f'lr={lr:.2e} img={it + 1}/{len(dataset)} '
+                          f'({(time.time() - t0) / (it + 1):.2f}s/img)', flush=True)
+                    run_reg = run_adv = 0.0
+                    run_k = 0
 
-                loss = 0.5 * (loss_reg + loss_adv) * weight
-                loss.backward()
-
-                run_reg += loss_reg.item() * nb
-                run_adv += loss_adv.item() * nb
-                run_cnt += nb
-                accum += nb
-
-                if accum >= accum_target:
-                    optimizer.step()
-                    optimizer.zero_grad(set_to_none=True)
-                    accum = 0
-                    global_step += 1
-
-                    if global_step % config['log_every'] == 0:
-                        lr = optimizer.param_groups[0]['lr']
-                        print(f'[e{epoch} step {global_step}] '
-                              f'reg={run_reg / run_cnt:.4f} '
-                              f'adv={run_adv / run_cnt:.4f} '
-                              f'lr={lr:.2e} img={it + 1}/{len(dataset)} '
-                              f'({(time.time() - t0) / (it + 1):.2f}s/img)',
-                              flush=True)
-                        run_reg = run_adv = 0.0
-                        run_cnt = 0
-
-                    if args.max_steps and global_step >= args.max_steps:
-                        print('[stop] reached max_steps', flush=True)
-                        _save(config, model, optimizer, epoch, args.resol, tag='smoke')
-                        return
-
-        # flush a partial accumulation window
-        if accum > 0:
-            optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
+                if args.max_steps and global_step >= args.max_steps:
+                    print('[stop] reached max_steps', flush=True)
+                    _save(config, model, optimizer, epoch, args.resol, tag='smoke')
+                    return
 
         reset_LR(optimizer, config['lr_decay'])
         print(f'[epoch {epoch}] done in {(time.time() - t0) / 60:.1f} min', flush=True)

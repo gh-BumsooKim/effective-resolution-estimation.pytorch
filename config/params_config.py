@@ -55,13 +55,24 @@ training_default = {
     'random_patch_offset'   : True,
     'pre_background_masking' : True,
     'mask_model'            : 'bisenet',
-    'pre_min_foreground'    : 0.50,     # >=50% foreground to keep a patch (train)
+    'pre_min_foreground'    : 0.50,     # >=50% foreground to keep a patch (train, patch mode)
+    'whole_min_foreground'  : 0.20,     # whole-face mode: keep a face with >=20% foreground
+                                        # (FFHQ crops mask out neck/cloth, so face+hair
+                                        #  covers ~0.4-0.5 of the frame on average)
     'max_downscale_factor'  : 16,       # df_m
     'use_antialiasing'      : True,
     'interpolation_methods' : INTERPOLATION_METHODS,   # single source of truth
     'interpolation_sampling': 'uniform',
-    'prescale_frequency'    : 0.80,     # 80% of samples are prescaled
+    'prescale_frequency'    : 0.80,     # 80% of samples are prescaled (patch mode)
     'downscale_frequency'   : 0.90,     # 90% of samples are downscaled (10% none)
+
+    # --- whole-image (256-aligned) mode -----------------------------------
+    # When set (e.g. 256), each training sample is the WHOLE face resized to
+    # this size -- no random prescale, no patch tiling.  The model input then
+    # equals the inference input (a fixed-size face crop), which is what we
+    # want when inference is done on fixed 256x256 crops.  Background masking
+    # (train) still applies.  Set to None for the paper's multi-scale patch mode.
+    'whole_image_size'      : None,
 
     # Pragmatic addition (not in the paper): cap the number of patches drawn
     # from a single image per step so that one very large prescaled image does
@@ -89,16 +100,40 @@ training_config = {
     # accumulates gradients to a simulated batch of 512.  On a 24 GB card we use
     # a larger micro-batch -- this only changes speed/memory, not the
     # optimisation, since gradients are still accumulated to 512 patches.
+    #
+    # Two families of configs (select the whole-* variants with `--whole`):
+    #   resol*  -> paper's multi-scale PATCH mode: prescale to a random
+    #              resolution and tile into patches.  Handles arbitrary
+    #              high-resolution inputs (e.g. 1024x1024) at inference.
+    #   whole*  -> WHOLE-FACE mode: resize the whole face to a fixed size (no
+    #              prescale, no tiling).  The model input equals the inference
+    #              input -- best when inference is done on fixed 256x256 crops.
     'resol256': {
         'patch_size'        : 256,
         'real_batch_size'   : 32,       # patches processed per forward pass
         'pgd_step_size'     : 30,       # L2 step size (in [0, 255])
         'prescale_range'    : (384, 2048),
+        'whole_image_size'  : None,
     },
     'resol128': {
         'patch_size'        : 128,
         'real_batch_size'   : 64,
         'pgd_step_size'     : 15,
         'prescale_range'    : (256, 2048),
+        'whole_image_size'  : None,
+    },
+    'whole256': {
+        'patch_size'        : 256,
+        'real_batch_size'   : 32,
+        'pgd_step_size'     : 30,
+        'prescale_range'    : (384, 2048),   # unused in whole mode
+        'whole_image_size'  : 256,
+    },
+    'whole128': {
+        'patch_size'        : 128,
+        'real_batch_size'   : 64,
+        'pgd_step_size'     : 15,
+        'prescale_range'    : (256, 2048),   # unused in whole mode
+        'whole_image_size'  : 128,
     },
 }

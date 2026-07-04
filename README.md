@@ -68,32 +68,55 @@ The ResNet50 ImageNet weights download automatically on first run.
 
 ## Usage
 
-Training (paper: 10 epochs; a 10 000-image FFHQ subset matches the paper's
-"Subset of FFHQ" ablation):
+Two training configurations are provided (both train for 10 epochs; a
+10 000-image FFHQ subset matches the paper's "Subset of FFHQ" ablation). Point at
+your images with `--dataset_path` (or the `SSERE_DATA_GLOB` env variable).
 
-Point it at your images with `--dataset_path` (or the `SSERE_DATA_GLOB`
-environment variable):
+### A) Patch mode (paper, multi-scale)
+
+Prescales to a random resolution and tiles the image into patches — handles
+arbitrary high-resolution inputs (e.g. 1024×1024) at inference.
 
 ```cmd
+:: train
 python script/train.py --resol 256 --dataset_path "/path/to/FFHQ/images1024x1024/*.png" ^
                        --dataset_limit 10000 --num_workers 8 --checkpoint_dir checkpoints
+
+:: infer (mask on = paper setting; drop --mask to score every patch)
+python script/test.py --resol 256 --mask ^
+                      --checkpoint checkpoints/eff_resnet_resol256_latest.pth ^
+                      --image path/to/face.png            :: or --input_dir folder
 ```
 
-Resume: `--resume checkpoints/eff_resnet_resol256_latest.pth`.
-Patch-size 128 variant: `--resol 128`.
+Resume: `--resume checkpoints/eff_resnet_resol256_latest.pth`. Patch-size 128: `--resol 128`.
 
-Estimation:
+### B) Whole-face mode (`--whole`, 256-aligned)
+
+Resizes the whole face to a fixed size (no prescale, no tiling), so the model
+input equals the inference input. Best when inference is done on fixed-size crops
+(e.g. 256×256). Training masks the background (BiSeNet); inference scores the
+whole image and is typically run **unmasked** (the paper's strong
+"train-masked / infer-unmasked" setting).
 
 ```cmd
-python script/test.py --resol 256 --checkpoint checkpoints/eff_resnet_resol256_latest.pth ^
-                      --image path/to/face.png            # or --input_dir folder
+:: train (whole-face 256)
+python script/train.py --resol 256 --whole ^
+                       --dataset_path "/path/to/FFHQ/images1024x1024/*.png" ^
+                       --dataset_limit 10000 --num_workers 8 --checkpoint_dir checkpoints_whole256
+
+:: infer (each image is resized to 256 and scored as one whole face)
+python script/test.py --resol 256 --whole ^
+                      --checkpoint checkpoints_whole256/eff_resnet_resol256_latest.pth ^
+                      --input_dir path/to/256_crops --output_csv results.csv
 ```
 
-Background masking is **off by default** (every patch is scored), which suits
-tight face crops such as 256×256 images where the whole image is a single patch.
-Add `--mask` to enable BiSeNet background masking + foreground filtering (the
-paper's inference setting). `r_eff = y * r` scales with the input resolution `r`,
-so keep the evaluation resolution consistent across images.
+### Notes
+
+- Inference background masking is **off by default** (add `--mask` for the
+  paper's masked inference). In whole mode each input is resized to the config
+  size and scored as a single image.
+- `r_eff = y * r` scales with the input resolution `r`, so keep the evaluation
+  resolution consistent across images (fixed at the config size in whole mode).
 
 ## Layout
 

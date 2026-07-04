@@ -29,6 +29,10 @@ from utils.patches import extract_patches, dynamic_stride
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('-r', '--resol', default='256', choices=['128', '256'])
+    p.add_argument('--whole', action='store_true',
+                   help='use the whole-face config: resize each input to the '
+                        'fixed size and score it as a single whole image '
+                        '(matches training done with --whole).')
     p.add_argument('-g', '--num_gpu', default='0')
     p.add_argument('--checkpoint', required=True)
     p.add_argument('--image', default=None, help='single image')
@@ -46,7 +50,18 @@ def parse_args():
 @torch.no_grad()
 def estimate(model, masker, config, device, path):
     pil = Image.open(path).convert('RGB')
-    img = T.ToTensor()(pil).to(device)          # (3, H, W)
+
+    # whole-face mode: resize the whole image to the fixed size and score it as
+    # one image (a single patch == the whole face), matching whole-face training.
+    S = config.get('whole_image_size')
+    if S is not None:
+        pil = pil.resize((S, S), Image.BICUBIC)
+
+    transform = T.Compose([
+        #T.Resize((512, 512)),
+        T.ToTensor()
+    ])
+    img = transform(pil).to(device)          # (3, H, W)
     r = img.shape[1]                            # height as absolute resolution
 
     P = config['patch_size']
@@ -85,7 +100,8 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     config = dict(training_default)
-    config.update(training_config[f'resol{args.resol}'])
+    config.update(training_config[f'whole{args.resol}' if args.whole
+                                  else f'resol{args.resol}'])
     device = torch.device(f'cuda:{args.num_gpu}'
                           if torch.cuda.is_available() else 'cpu')
 
