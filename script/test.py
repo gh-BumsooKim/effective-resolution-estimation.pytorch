@@ -110,8 +110,16 @@ def main():
     ckpt = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(ckpt['model'] if 'model' in ckpt else ckpt)
     model.eval()
-    masker = FaceMasker(
-        device, input_size=config['bisenet_input_size']) if args.mask else None
+    # Whole-face mode always scores the whole (fixed-size) crop unmasked, so
+    # background masking is ignored there.
+    if config.get('whole_image_size') is not None:
+        if args.mask:
+            print('[note] --mask is ignored in whole-face mode '
+                  '(the whole crop is scored unmasked)')
+        masker = None
+    else:
+        masker = FaceMasker(
+            device, input_size=config['bisenet_input_size']) if args.mask else None
 
     if args.image:
         paths = [args.image]
