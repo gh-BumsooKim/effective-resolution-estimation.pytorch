@@ -89,6 +89,11 @@ python script/test.py --resol 256 --checkpoint checkpoints/eff_resnet_resol256_l
                       --image path/to/face.png            # or --input_dir folder
 ```
 
+Add `--no_mask` to skip BiSeNet background masking (and foreground filtering) and
+score every patch — convenient for tight face crops such as 256×256 images, where
+the whole image is a single patch. `r_eff = y * r` still scales with the input
+resolution `r`, so keep the evaluation resolution consistent across images.
+
 ## Layout
 
 | path | purpose |

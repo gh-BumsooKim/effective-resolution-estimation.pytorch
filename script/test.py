@@ -35,6 +35,10 @@ def parse_args():
     p.add_argument('--input_dir', default=None, help='directory of images')
     p.add_argument('--output_csv', default=None,
                    help='optional path to write results as CSV')
+    p.add_argument('--no_mask', action='store_true',
+                   help='disable BiSeNet background masking (and foreground '
+                        'filtering); every patch is scored. Handy for tight '
+                        'face crops, e.g. 256x256 images (1 patch = whole image).')
     return p.parse_args()
 
 
@@ -44,14 +48,22 @@ def estimate(model, masker, config, device, path):
     img = T.ToTensor()(pil).to(device)          # (3, H, W)
     r = img.shape[1]                            # height as absolute resolution
 
-    mask = masker.foreground_mask(img)
-    img_masked = img * mask[0]
-
     P = config['patch_size']
     stride = dynamic_stride(img.shape[1], img.shape[2], P, config['num_patches'])
-    patches, _ = extract_patches(img_masked, mask[0], P, stride,
+
+    if masker is not None:
+        mask = masker.foreground_mask(img)[0]   # (1, H, W)
+        img_masked = img * mask
+        min_fg = config['post_min_foreground']
+    else:
+        # no masking: keep the whole image, accept every patch
+        mask = torch.ones(1, img.shape[1], img.shape[2], device=device)
+        img_masked = img
+        min_fg = 0.0
+
+    patches, _ = extract_patches(img_masked, mask, P, stride,
                                  random_offset=False,
-                                 min_foreground=config['post_min_foreground'])
+                                 min_foreground=min_fg)
     if patches.shape[0] == 0:
         return None, 0
 
@@ -81,7 +93,8 @@ def main():
     ckpt = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(ckpt['model'] if 'model' in ckpt else ckpt)
     model.eval()
-    masker = FaceMasker(device, input_size=config['bisenet_input_size'])
+    masker = None if args.no_mask else FaceMasker(
+        device, input_size=config['bisenet_input_size'])
 
     if args.image:
         paths = [args.image]
