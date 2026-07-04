@@ -35,10 +35,11 @@ def parse_args():
     p.add_argument('--input_dir', default=None, help='directory of images')
     p.add_argument('--output_csv', default=None,
                    help='optional path to write results as CSV')
-    p.add_argument('--no_mask', action='store_true',
-                   help='disable BiSeNet background masking (and foreground '
-                        'filtering); every patch is scored. Handy for tight '
-                        'face crops, e.g. 256x256 images (1 patch = whole image).')
+    p.add_argument('--mask', action='store_true',
+                   help='enable BiSeNet background masking + foreground '
+                        'filtering (OFF by default). Without it every patch is '
+                        'scored, which suits tight face crops such as 256x256 '
+                        'images (1 patch = whole image).')
     return p.parse_args()
 
 
@@ -93,8 +94,8 @@ def main():
     ckpt = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(ckpt['model'] if 'model' in ckpt else ckpt)
     model.eval()
-    masker = None if args.no_mask else FaceMasker(
-        device, input_size=config['bisenet_input_size'])
+    masker = FaceMasker(
+        device, input_size=config['bisenet_input_size']) if args.mask else None
 
     if args.image:
         paths = [args.image]
